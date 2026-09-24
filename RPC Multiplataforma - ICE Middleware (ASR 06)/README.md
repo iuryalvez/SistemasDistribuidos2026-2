@@ -24,3 +24,11 @@ sudo apt-get install python3-zeroc-ice
 sudo apt-get install zeroc-ice-compilers
 ```
 Note: This code is exactly as in Example 3.21 of Maarten van Steen's book.
+
+Atividade ASR-06:
+
+Acrescente pelo menos dois métodos novos no exemplo fornecido para esta tarefa (link abaixo). Postar o link do repo no campo de texto da tarefa.
+
+Repo original (usar como template): https://github.com/professorfabio/ice-demo.git
+
+ICE Middleware - Getting Started: https://docs.zeroc.com/ice/3.8/cpp/get-started

@@ -3,7 +3,6 @@ import time
 import threading
 from constCS import HOST, PORT
 
-# Sites solicitados
 SITES = [
     "google.com",
     "sigaa.sistemas.ufg.br",
