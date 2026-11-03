@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package converter;
+
+// Serviço de aplicação 1: conversão de unidades (sem estado)
+service Converter {
+	rpc ConvertTemperature (ConversionRequest) returns (ConversionReply) {}
+	rpc ConvertDistance (ConversionRequest) returns (ConversionReply) {}
+}
+
+message ConversionRequest {
+	double value = 1;
+	string from_unit = 2;   // temperatura: C, F, K | distância: km, mi
+	string to_unit = 3;
+}
+
+message ConversionReply {
+	double value = 1;
+	string unit = 2;
+}
