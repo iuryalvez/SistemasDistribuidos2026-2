@@ -1,0 +1,53 @@
+Implementei um serviço de nomes e dois serviços de aplicação em gRPC, cada um em um processo separado, e um cliente que descobre o endereço dos serviços pelo serviço 
+de nomes antes de fazer as requisições.
+
+Serviço de nomes: Parti do template e mantive o "SimpleNamingService.proto". Corrigi as regras: "Bind" recusa um nome já registrado (NOK), 
+"Rebind" e "Unbind" retornam NOK se o nome não existe e "Lookup" retorna endereço vazio quando não encontra. Adicionei um lock, porque o servidor gRPC 
+atende cada requisição em uma thread do pool, e persistência em "names.json", para os registros sobreviverem a um reinício.
+
+Conversor (porta 5679): Serviço sem estado com "ConvertTemperature" (C, F, K) e "ConvertDistance" (km, mi). Entradas inválidas retornam o erro gRPC INVALID_ARGUMENT.
+
+ChaveValor (porta 5680): Serviço com estado em memória, com "Put", "Get", "Delete" e "List".
+
+Registro automático: Cada servidor faz "bind" ao subir. Se o nome já existe, faz "rebind", e ao ser encerrado faz "unbind", mas só se o registro ainda aponta para ele. 
+Assim uma instância antiga não apaga o registro de uma nova.
+
+Máquinas diferentes: Os servidores escutam em todas as interfaces e anunciam no bind o IP passado em "--host". O endereço do serviço de nomes vem de "--ns",
+então basta trocar os IPs para rodar em máquinas diferentes. O README tem um guia para isso.
+
+Saída do exemplo "client.py":
+[Cliente] serviço de nomes em 127.0.0.1:5678
+[Cliente] lookup Conversor -> 127.0.0.1:5679
+  ConvertTemperature(100 C -> F) = 212.0 F
+  ConvertTemperature(98.6 F -> C) = 37.0 C
+  ConvertTemperature(0 C -> K) = 273.15 K
+  ConvertDistance(42.195 km -> mi) = 26.219 mi
+  ConvertDistance(26.2 mi -> km) = 42.165 km
+  ConvertTemperature(-300 C -> K) = erro INVALID_ARGUMENT: temperatura abaixo do zero absoluto
+[Cliente] lookup ChaveValor -> 127.0.0.1:5680
+  Put(disciplina='Sistemas Distribuidos') = OK
+  Put(asr='11') = OK
+  Put(middleware='gRPC') = OK
+  Get(middleware) = found=True value='gRPC'
+  Delete(asr) = OK
+  Get(asr) = found=False
+  List() = [('disciplina', 'Sistemas Distribuidos'), ('middleware', 'gRPC')]
+[Cliente] lookup ServicoInexistente -> não encontrado
+
+Para testar o rebind, encerrei o Conversor com "kill -9", sem unbind. O registro continuou apontando para a porta 5679 e o cliente recebeu
+"falha ao acessar Conversor em 127.0.0.1:5679: UNAVAILABLE". Ao subir o Conversor de novo na porta 5681, o bind retornou NOK e ele fez rebind:
+
+Saída do exemplo "converter_server.py --port 5681":
+[Conversor] ouvindo na porta 5681
+[Conversor] bind 127.0.0.1:5681 -> NOK
+[Conversor] rebind 127.0.0.1:5681 -> OK
+
+Depois disso, o cliente passou a encontrar "lookup Conversor -> 127.0.0.1:5681" sem nenhuma mudança no código. 
+Reiniciei também o serviço de nomes, que carregou os 2 registros do "names.json", e ao encerrar os servidores os dois nomes foram removidos com unbind.
+
+O serviço de nomes dá transparência de localização. O cliente conhece apenas o nome lógico do serviço e o endereço do serviço de nomes, e o servidor pode mudar
+de porta ou de máquina sem que o cliente seja alterado. Ele só participa da descoberta: depois do lookup, o cliente fala direto com o servidor. 
+
+Como no ICE das ASR 06 e 08, o gRPC gera stubs a partir de um contrato (".proto") e cuida da serialização (Protocol Buffers) e do transporte (HTTP/2).
+A limitação de um serviço de nomes simples é o registro velho: se um servidor cai sem unbind, o lookup devolve um endereço morto até que ele volte e faça rebind.
+O serviço de nomes também é um ponto de falha, resolvido em parte pela persistência em arquivo.
