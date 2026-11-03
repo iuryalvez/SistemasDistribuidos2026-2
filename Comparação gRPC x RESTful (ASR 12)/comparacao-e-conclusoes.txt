@@ -1,0 +1,101 @@
+Rodei os dois exemplos do serviço de funcionários (REST com Flask e gRPC) e escrevi o "benchmark.py", que faz as mesmas operações
+nas duas versões e mede o tempo de cada chamada e o tamanho das mensagens. Usei esses resultados e o código para comparar as duas 
+tecnologias.
+
+Modelo de programação: 
+
+No REST a interface é genérica. O serviço expõe recursos ("/empdb/employee/<id>") manipulados pelos 
+verbos HTTP (GET, POST, PUT, DELETE), e o cliente monta a URL, escolhe o verbo e interpreta o JSON da resposta. 
+
+No gRPC a interface é específica da aplicação: o "EmployeeService.proto" define cada operação com nome, 
+tipo de entrada e tipo de saída, e o cliente chama "stub.GetEmployeeDataFromID(EmployeeID(id=101))" como se fosse um método local, 
+no estilo RPC visto nas ASR 06 e 11.
+
+Contrato: 
+
+No REST não existe contrato formal no código; o formato das mensagens está implícito no servidor 
+e no cliente (os ids e salários trafegam como texto, "'id':'101'"). 
+
+No gRPC o ".proto" é o contrato, os tipos são verificados (um id negativo é recusado no próprio cliente, porque o campo é "uint32")
+e o "grpc_tools.protoc" gera o código de comunicação.
+
+Transparência de distribuição: 
+
+O gRPC esconde mais a distribuição, porque o cliente não vê HTTP, URL nem serialização. 
+
+No REST o cliente lida com tudo isso. Por outro lado, a interface REST deixa claro que a chamada é remota e pode falhar, 
+o que ajuda a lembrar de tratar erros.
+
+Tratamento de erros: 
+
+O REST usa os códigos HTTP (a URL inexistente do exemplo recebe 404), e o gRPC tem códigos próprios ("NOT_FOUND", "UNAVAILABLE"). 
+Nos dois exemplos os erros de aplicação estão mal tratados: buscar o funcionário 999 no REST devolve 200 com lista vazia,
+alterar o salário dele gera erro 500, e no gRPC a mesma busca termina em "UNKNOWN: list index out of range".
+
+Abertura: 
+
+O REST é mais aberto. Qualquer linguagem ou ferramenta com cliente HTTP usa o serviço, inclusive o "curl" e o navegador, sem gerar código.
+O gRPC também é multiplataforma, mas exige o ".proto" e o código gerado para cada linguagem, e o navegador não fala gRPC diretamente.
+
+Modularidade e manutenibilidade: 
+
+No gRPC a interface fica separada da implementação em um arquivo próprio, e uma mudança no contrato aparece nos dois lados
+ao gerar o código de novo. Campos novos podem ser adicionados sem quebrar clientes antigos, porque o Protobuf identifica 
+os campos por número. 
+
+No REST a evolução é mais livre (basta aceitar um campo novo no JSON), mas nada avisa o cliente quando o servidor muda uma rota ou um 
+formato; a documentação precisa ser mantida à parte (OpenAPI, por exemplo).
+
+Eficiência: 
+
+Rodei os servidores e o cliente na mesma máquina, com 5000 chamadas por operação depois de um aquecimento.
+
+Buscar um funcionário: 
+
+REST 1,80 ms e 100 bytes de resposta; 
+gRPC 0,47 ms e 37 bytes.
+
+Listar 2 funcionários: 
+
+REST 1,88 ms e 186 bytes; 
+gRPC 0,49 ms e 74 bytes.
+
+Criar funcionário: 
+
+REST 1,99 ms e 63 bytes de requisição; 
+gRPC 0,98 ms e 31 bytes.
+
+Listar 102 funcionários: 
+
+REST 1,89 ms e 6076 bytes; 
+gRPC 0,71 ms e 3364 bytes.
+
+O gRPC foi de 2 a 4 vezes mais rápido e as mensagens ficaram de 45% a 63% menores.
+Como tudo rodou em localhost, a diferença vem do protocolo e da serialização, não da rede.
+O servidor do Flask responde com "Connection: close", então cada chamada REST abre uma conexão TCP nova, 
+enquanto o canal gRPC mantém uma conexão HTTP/2 aberta para todas as chamadas. 
+Além disso, o JSON repete o nome dos campos em toda mensagem e escreve números como texto, e o Protobuf usa binário. 
+Em máquinas separadas a latência da rede se soma aos dois lados e a diferença relativa de tempo diminui, mas a de tamanho continua.
+
+Comparação:
+
+APIs para frontend: O REST é a escolha mais comum. O navegador fala HTTP e JSON nativamente, a API pode ser testada no próprio navegador
+ou com "curl", funciona com cache HTTP, proxies e CDNs, e é fácil de abrir para terceiros. 
+
+O gRPC no navegador precisa do gRPC-Web e de um proxy que traduza as chamadas, e as mensagens binárias são difíceis de inspecionar.
+
+APIs entre serviços (backend): O gRPC se encaixa melhor. Os serviços são da mesma organização, então dá para compartilhar o ".proto";
+as chamadas são muitas e pequenas, onde a conexão reaproveitada e o Protobuf fazem diferença; 
+o contrato tipado evita erros entre equipes e linguagens; 
+e o HTTP/2 permite streaming nos dois sentidos, útil para eventos e grandes volumes de dados.
+
+Fatores de escolha: 
+
+Quem consome a API (navegador e terceiros favorecem REST; serviços internos favorecem gRPC), 
+exigência de desempenho e volume de chamadas, necessidade de streaming, necessidade de contrato tipado 
+e geração de código para várias linguagens, infraestrutura disponível (cache HTTP, balanceadores e proxies que entendam HTTP/2),
+facilidade de depuração e familiaridade da equipe.
+
+Conclusão: O REST troca desempenho por abertura e simplicidade de acesso, o que o torna adequado para APIs públicas e para o frontend.
+O gRPC troca abertura por eficiência, contrato tipado e maior transparência de distribuição, o que o torna adequado para a
+comunicação entre serviços. É comum usar os dois no mesmo sistema: REST na borda, para os clientes, e gRPC entre os serviços internos.
